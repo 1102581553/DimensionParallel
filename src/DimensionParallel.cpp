@@ -11,7 +11,7 @@
 #include <mc/world/actor/player/Player.h>
 #include <mc/world/actor/Actor.h>
 #include <mc/legacy/ActorUniqueID.h>
-#include <mc/world/phys/Vec3.h>
+#include <mc/deps/core/math/Vec3.h>
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <filesystem>
