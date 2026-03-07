@@ -19,7 +19,7 @@
 #include <mc/deps/core/math/Vec3.h>
 #include <gsl/gsl>
 
-#include <moodycamel/concurrentqueue.h>
+#include <concurrentqueue/moodycamel/concurrentqueue.h>
 
 namespace dimension_parallel {
 
