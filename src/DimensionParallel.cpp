@@ -22,8 +22,6 @@
 
 namespace dimension_parallel {
 
-// ==================== DimensionParallelMod ====================
-
 static DimensionParallelMod* gModInstance = nullptr;
 
 DimensionParallelMod& DimensionParallelMod::getInstance() {
@@ -100,9 +98,6 @@ void DimensionParallelMod::disable() {
     
     try {
         uninstallHooks();
-        
-        auto& eventBus = ll::event::EventBus::getInstance();
-        eventBus.clear();
         
         if (mThreadManager) {
             mThreadManager->shutdown();
@@ -528,9 +523,101 @@ size_t CrossDimensionSync::getPendingTeleportCount() const {
 
 // ==================== Hooks ====================
 
+// Level::tick Hook - 拦截主 tick 并并行化维度 tick
+LL_AUTO_TYPE_INSTANCE_HOOK(
+    LevelTickHook,
+    ll::memory::HookPriority::Normal,
+    Level,
+    &Level::tick,
+    void
+) {
+    auto& mod = DimensionParallelMod::getInstance();
+    auto& config = mod.getConfigManager().getConfig();
+
+    if (config.enableParallelTicking && mod.getThreadManager().getWorkerCount() > 0) {
+        // 并行执行所有维度 tick
+        mod.getThreadManager().tickAllDimensions();
+        mod.getSyncManager().processPendingOperations();
+        return;  // 跳过原版维度 tick
+    }
+    
+    origin();  // 调用原版
+}
+
+// Dimension::tick Hook - 防止重复 tick
+LL_AUTO_TYPE_INSTANCE_HOOK(
+    DimensionTickHook,
+    ll::memory::HookPriority::High,
+    Dimension,
+    &Dimension::tick,
+    void
+) {
+    auto& mod = DimensionParallelMod::getInstance();
+    auto& config = mod.getConfigManager().getConfig();
+    
+    // 如果启用了并行 tick 且该维度已注册，则跳过（由线程管理器调度）
+    if (config.enableParallelTicking && mod.getThreadManager().isDimensionRegistered(this->getDimensionId())) {
+        return;
+    }
+    
+    origin();
+}
+
+// Player::changeDimension Hook - 同步玩家维度切换
+LL_AUTO_TYPE_INSTANCE_HOOK(
+    PlayerChangeDimensionHook,
+    ll::memory::HookPriority::Normal,
+    Player,
+    &Player::changeDimension,
+    void,
+    int targetDim,
+    bool respawn
+) {
+    auto& mod = DimensionParallelMod::getInstance();
+    auto& sync = mod.getSyncManager();
+    auto currentDim = this->getDimensionId();
+
+    sync.queueTeleportRequest(this, currentDim, targetDim, this->getPosition());
+    origin(targetDim, respawn);
+    sync.onPlayerTeleported(this, currentDim, targetDim);
+}
+
+// Level::addEntity Hook - 注册新实体
+LL_AUTO_TYPE_INSTANCE_HOOK(
+    LevelAddEntityHook,
+    ll::memory::HookPriority::Normal,
+    Level,
+    &Level::addEntity,
+    bool,
+    Actor& actor,
+    bool force
+) {
+    bool result = origin(actor, force);
+    if (result) {
+        auto& sync = DimensionParallelMod::getInstance().getSyncManager();
+        sync.registerEntity(&actor, actor.getDimensionId());
+    }
+    return result;
+}
+
+// Level::removeEntity Hook - 注销移除的实体
+LL_AUTO_TYPE_INSTANCE_HOOK(
+    LevelRemoveEntityHook,
+    ll::memory::HookPriority::Normal,
+    Level,
+    &Level::removeEntity,
+    void,
+    Actor& actor,
+    bool force
+) {
+    auto& sync = DimensionParallelMod::getInstance().getSyncManager();
+    sync.unregisterEntity(actor.getOrCreateUniqueID());
+    origin(actor, force);
+}
+
 void installHooks() {
     auto& logger = ll::mod::ModManager::getInstance().getMod("DimensionParallel")->getLogger();
-    logger.info("Hooks installed");
+    logger.info("Hooks installed successfully");
 }
 
 void uninstallHooks() {
