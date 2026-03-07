@@ -49,9 +49,6 @@ private:
     std::unique_ptr<CrossDimensionSync> mSyncManager;
     std::unique_ptr<ConfigManager> mConfigManager;
     std::atomic<bool> mEnabled{false};
-    
-    ll::event::ListenerId mServerStartedListener{};
-    ll::event::ListenerId mServerStoppingListener{};
 };
 
 class ConfigManager {
