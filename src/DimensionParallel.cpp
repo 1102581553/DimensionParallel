@@ -5,7 +5,6 @@
 #include <ll/api/event/server/ServerStoppingEvent.h>
 #include <ll/api/memory/Hook.h>
 #include <ll/api/service/ServerInfo.h>
-#include <ll/api/mod/ModManager.h>
 #include <mc/world/level/Level.h>
 #include <mc/world/level/dimension/Dimension.h>
 #include <mc/world/actor/player/Player.h>
@@ -63,7 +62,7 @@ bool DimensionParallelMod::enable() {
 
         auto& eventBus = ll::event::EventBus::getInstance();
         
-        mServerStartedListener = eventBus.emplaceListener<ll::event::ServerStartedEvent>(
+        eventBus.emplaceListener<ll::event::ServerStartedEvent>(
             [this](ll::event::ServerStartedEvent const&) {
                 getLogger().info("Server started, initializing dimension threads...");
                 mThreadManager->initialize();
@@ -71,7 +70,7 @@ bool DimensionParallelMod::enable() {
             }
         );
         
-        mServerStoppingListener = eventBus.emplaceListener<ll::event::ServerStoppingEvent>(
+        eventBus.emplaceListener<ll::event::ServerStoppingEvent>(
             [this](ll::event::ServerStoppingEvent const&) {
                 getLogger().info("Server stopping, cleaning up...");
                 mEnabled = false;
@@ -121,11 +120,9 @@ ConfigManager& ConfigManager::getInstance() {
 }
 
 bool ConfigManager::loadConfig() {
-    auto& logger = ll::mod::ModManager::getInstance().getMod("DimensionParallel")->getLogger();
-
     std::ifstream file(mConfigPath);
     if (!file.is_open()) {
-        logger.warn("Config file not found, creating default config");
+        DimensionParallelMod::getInstance().getLogger().warn("Config file not found, creating default config");
         return saveConfig();
     }
 
@@ -140,10 +137,10 @@ bool ConfigManager::loadConfig() {
         mConfig.logLevel = json.value("logLevel", mConfig.logLevel);
         mConfig.logTickTimes = json.value("logTickTimes", mConfig.logTickTimes);
 
-        logger.info("Config loaded successfully");
+        DimensionParallelMod::getInstance().getLogger().info("Config loaded successfully");
         return true;
     } catch (const std::exception& e) {
-        logger.error("Failed to parse config: {}", e.what());
+        DimensionParallelMod::getInstance().getLogger().error("Failed to parse config: {}", e.what());
         return false;
     }
 }
@@ -249,7 +246,7 @@ bool DimensionWorker::waitForTickCompletion(std::chrono::milliseconds timeout) {
 }
 
 void DimensionWorker::workerThread() {
-    auto& logger = ll::mod::ModManager::getInstance().getMod("DimensionParallel")->getLogger();
+    auto& logger = DimensionParallelMod::getInstance().getLogger();
     logger.debug("DimensionWorker {} started", mId);
 
     while (mRunning.load(std::memory_order_acquire)) {
@@ -268,7 +265,7 @@ void DimensionWorker::workerThread() {
 }
 
 void DimensionWorker::processTasks() {
-    auto& logger = ll::mod::ModManager::getInstance().getMod("DimensionParallel")->getLogger();
+    auto& logger = DimensionParallelMod::getInstance().getLogger();
     auto& config = ConfigManager::getInstance().getConfig();
     
     std::function<void()> task;
@@ -313,7 +310,7 @@ DimensionThreadManager& DimensionThreadManager::getInstance() {
 void DimensionThreadManager::initialize() {
     if (mInitialized.exchange(true)) return;
 
-    auto& logger = ll::mod::ModManager::getInstance().getMod("DimensionParallel")->getLogger();
+    auto& logger = DimensionParallelMod::getInstance().getLogger();
 
     for (int i = 0; i <= 2; ++i) {
         registerDimension(i);
@@ -325,7 +322,7 @@ void DimensionThreadManager::initialize() {
 void DimensionThreadManager::shutdown() {
     if (!mInitialized.exchange(false)) return;
 
-    auto& logger = ll::mod::ModManager::getInstance().getMod("DimensionParallel")->getLogger();
+    auto& logger = DimensionParallelMod::getInstance().getLogger();
     logger.info("Shutting down DimensionThreadManager...");
 
     {
@@ -362,7 +359,7 @@ void DimensionThreadManager::registerDimension(int id) {
     }
     mWorkers[id] = std::move(worker);
 
-    auto& logger = ll::mod::ModManager::getInstance().getMod("DimensionParallel")->getLogger();
+    auto& logger = DimensionParallelMod::getInstance().getLogger();
     logger.debug("Registered dimension {}", id);
 }
 
@@ -390,7 +387,7 @@ bool DimensionThreadManager::tickAllDimensionsWithTimeout(std::chrono::milliseco
         return false;
     }
 
-    auto& logger = ll::mod::ModManager::getInstance().getMod("DimensionParallel")->getLogger();
+    auto& logger = DimensionParallelMod::getInstance().getLogger();
     auto startTime = std::chrono::high_resolution_clock::now();
 
     {
@@ -610,13 +607,11 @@ LL_AUTO_TYPE_INSTANCE_HOOK(
 }
 
 void installHooks() {
-    auto& logger = ll::mod::ModManager::getInstance().getMod("DimensionParallel")->getLogger();
-    logger.info("Hooks installed successfully");
+    DimensionParallelMod::getInstance().getLogger().info("Hooks installed successfully");
 }
 
 void uninstallHooks() {
-    auto& logger = ll::mod::ModManager::getInstance().getMod("DimensionParallel")->getLogger();
-    logger.info("Hooks uninstalled");
+    DimensionParallelMod::getInstance().getLogger().info("Hooks uninstalled");
 }
 
 } // namespace dimension_parallel
