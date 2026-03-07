@@ -16,7 +16,7 @@
 #include <mc/world/level/dimension/Dimension.h>
 #include <mc/world/actor/player/Player.h>
 #include <mc/world/actor/Actor.h>
-#include <mc/world/phys/Vec3.h>
+#include <mc/deps/core/math/Vec3.h>
 #include <gsl/gsl>
 
 #include <moodycamel/concurrentqueue.h>
