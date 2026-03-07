@@ -10,7 +10,7 @@
 #include <mc/world/level/dimension/Dimension.h>
 #include <mc/world/actor/player/Player.h>
 #include <mc/world/actor/Actor.h>
-#include <mc/world/actor/ActorUniqueID.h>
+#include <mc/legacy/ActorUniqueID.h>
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <filesystem>
@@ -24,18 +24,18 @@ namespace dimension_parallel {
 
 // ==================== DimensionParallelMod ====================
 
+static DimensionParallelMod* gModInstance = nullptr;
+
 DimensionParallelMod& DimensionParallelMod::getInstance() {
-    static DimensionParallelMod* instance = nullptr;
-    if (!instance) {
+    if (!gModInstance) {
         throw std::runtime_error("DimensionParallelMod not initialized");
     }
-    return *instance;
+    return *gModInstance;
 }
 
 DimensionParallelMod::DimensionParallelMod(ll::mod::Manifest const& manifest) 
     : ll::mod::NativeMod(manifest) {
-    // 设置全局实例指针
-    // 注意：需要在 enable() 中设置，因为此时对象可能还未完全构造
+    gModInstance = this;
 }
 
 bool DimensionParallelMod::load() {
@@ -62,13 +62,8 @@ bool DimensionParallelMod::enable() {
         mThreadManager = std::make_unique<DimensionThreadManager>();
         mSyncManager = std::make_unique<CrossDimensionSync>();
 
-        // 设置全局实例（在 enable 中设置，确保对象已完全构造）
-        // 使用静态指针存储
-        static DimensionParallelMod* modPtr = this;
-        
         auto& eventBus = ll::event::EventBus::getInstance();
         
-        // 注册服务器启动事件
         mServerStartedListener = eventBus.emplaceListener<ll::event::ServerStartedEvent>(
             [this](ll::event::ServerStartedEvent const&) {
                 getLogger().info("Server started, initializing dimension threads...");
@@ -77,7 +72,6 @@ bool DimensionParallelMod::enable() {
             }
         );
         
-        // 注册服务器停止事件
         mServerStoppingListener = eventBus.emplaceListener<ll::event::ServerStoppingEvent>(
             [this](ll::event::ServerStoppingEvent const&) {
                 getLogger().info("Server stopping, cleaning up...");
@@ -105,14 +99,11 @@ void DimensionParallelMod::disable() {
     mEnabled = false;
     
     try {
-        // 卸载钩子
         uninstallHooks();
         
-        // 移除事件监听
         auto& eventBus = ll::event::EventBus::getInstance();
         eventBus.clear();
         
-        // 关闭线程管理器
         if (mThreadManager) {
             mThreadManager->shutdown();
             mThreadManager.reset();
@@ -125,9 +116,6 @@ void DimensionParallelMod::disable() {
         getLogger().error("Error during disable: {}", e.what());
     }
 }
-
-// 存储全局实例指针的静态变量
-static DimensionParallelMod* gModInstance = nullptr;
 
 // ==================== ConfigManager ====================
 
@@ -190,14 +178,12 @@ void DimensionStats::recordTick(uint64_t microseconds, uint64_t threshold) {
     totalTicks.fetch_add(1, std::memory_order_relaxed);
     totalTickTime.fetch_add(microseconds, std::memory_order_relaxed);
     
-    // 更新最大值（使用 CAS 循环）
     uint64_t currentMax = maxTickTime.load(std::memory_order_relaxed);
     while (microseconds > currentMax && 
            !maxTickTime.compare_exchange_weak(currentMax, microseconds, 
                                               std::memory_order_relaxed,
                                               std::memory_order_relaxed)) {}
     
-    // 记录慢 tick
     if (microseconds > threshold) {
         slowTickCount.fetch_add(1, std::memory_order_relaxed);
     }
@@ -225,7 +211,7 @@ DimensionWorker::~DimensionWorker() {
 }
 
 void DimensionWorker::start() {
-    if (mRunning.exchange(true)) return;  // 已经运行
+    if (mRunning.exchange(true)) return;
     
     mThread = std::thread(&DimensionWorker::workerThread, this);
 
@@ -234,14 +220,12 @@ void DimensionWorker::start() {
         std::string threadName = "DimWorker_" + std::to_string(mId);
         std::wstring wName(threadName.begin(), threadName.end());
         SetThreadDescription(mThread.native_handle(), wName.c_str());
-    } catch (...) {
-        // 线程命名失败不影响功能
-    }
+    } catch (...) {}
 #endif
 }
 
 void DimensionWorker::stop() {
-    if (!mRunning.exchange(false)) return;  // 已经停止
+    if (!mRunning.exchange(false)) return;
     mCv.notify_all();
     mCompletionCv.notify_all();
 }
@@ -254,7 +238,7 @@ void DimensionWorker::join() {
 
 void DimensionWorker::submitTask(std::function<void()>&& task) {
     if (!mRunning.load(std::memory_order_relaxed)) {
-        return;  // 工作线程已停止，丢弃任务
+        return;
     }
     mTaskQueue.enqueue(std::move(task));
     mHasTask.store(true, std::memory_order_release);
@@ -282,7 +266,6 @@ void DimensionWorker::workerThread() {
         mHasTask.store(false, std::memory_order_release);
     }
 
-    // 处理剩余任务
     processTasks();
     
     logger.debug("DimensionWorker {} stopped", mId);
@@ -296,7 +279,6 @@ void DimensionWorker::processTasks() {
     while (mTaskQueue.try_dequeue(task)) {
         mPendingTasks.fetch_add(1, std::memory_order_acq_rel);
 
-        // RAII 守卫确保 pendingTasks 一定递减
         auto guard = gsl::finally([this] {
             if (mPendingTasks.fetch_sub(1, std::memory_order_acq_rel) == 1) {
                 mCompletionCv.notify_all();
@@ -313,7 +295,7 @@ void DimensionWorker::processTasks() {
             
             if (config.logTickTimes && config.enablePerformanceMonitoring) {
                 if (duration > config.tickTimeoutMs * 1000) {
-                    logger.warn("Dimension {} tick took {}μs (threshold: {}ms)", 
+                    logger.warn("Dimension {} tick took {}us (threshold: {}ms)", 
                                 mId, duration, config.tickTimeoutMs);
                 }
             }
@@ -337,7 +319,6 @@ void DimensionThreadManager::initialize() {
 
     auto& logger = ll::mod::ModManager::getInstance().getMod("DimensionParallel")->getLogger();
 
-    // 注册主世界 (0)、下界 (1)、末地 (2)
     for (int i = 0; i <= 2; ++i) {
         registerDimension(i);
     }
@@ -351,7 +332,6 @@ void DimensionThreadManager::shutdown() {
     auto& logger = ll::mod::ModManager::getInstance().getMod("DimensionParallel")->getLogger();
     logger.info("Shutting down DimensionThreadManager...");
 
-    // 先停止所有工作线程
     {
         std::shared_lock lock(mWorkersMutex);
         for (auto& [id, worker] : mWorkers) {
@@ -359,7 +339,6 @@ void DimensionThreadManager::shutdown() {
         }
     }
     
-    // 等待所有线程结束
     {
         std::shared_lock lock(mWorkersMutex);
         for (auto& [id, worker] : mWorkers) {
@@ -367,7 +346,6 @@ void DimensionThreadManager::shutdown() {
         }
     }
     
-    // 清理
     {
         std::unique_lock lock(mWorkersMutex);
         mWorkers.clear();
@@ -379,7 +357,7 @@ void DimensionThreadManager::shutdown() {
 void DimensionThreadManager::registerDimension(int id) {
     std::unique_lock lock(mWorkersMutex);
     if (mWorkers.find(id) != mWorkers.end()) {
-        return;  // 已注册
+        return;
     }
 
     auto worker = std::make_unique<DimensionWorker>(id);
@@ -419,7 +397,6 @@ bool DimensionThreadManager::tickAllDimensionsWithTimeout(std::chrono::milliseco
     auto& logger = ll::mod::ModManager::getInstance().getMod("DimensionParallel")->getLogger();
     auto startTime = std::chrono::high_resolution_clock::now();
 
-    // 提交所有维度的 tick 任务
     {
         std::shared_lock lock(mWorkersMutex);
         for (auto& [id, worker] : mWorkers) {
@@ -433,7 +410,6 @@ bool DimensionThreadManager::tickAllDimensionsWithTimeout(std::chrono::milliseco
         }
     }
 
-    // 等待所有维度完成（带超时）
     bool allCompleted = true;
     {
         std::shared_lock lock(mWorkersMutex);
@@ -448,7 +424,7 @@ bool DimensionThreadManager::tickAllDimensionsWithTimeout(std::chrono::milliseco
     auto endTime = std::chrono::high_resolution_clock::now();
     auto totalDuration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
     
-    if (totalDuration > 50) {  // 超过 50ms 记录日志
+    if (totalDuration > 50) {
         logger.debug("All dimensions ticked in {}ms", totalDuration);
     }
 
@@ -496,9 +472,8 @@ void CrossDimensionSync::queueTeleportRequest(Player* player, int from, int to, 
     
     std::lock_guard lock(mTeleportMutex);
     
-    // 限制队列大小
     if (mTeleportQueue.size() >= MAX_PENDING_TELEPORTS) {
-        mTeleportQueue.pop();  // 移除最旧的请求
+        mTeleportQueue.pop();
     }
     
     TeleportRequest req{
@@ -525,7 +500,6 @@ void CrossDimensionSync::processPendingTeleports() {
     while (!localQueue.empty()) {
         auto& req = localQueue.front();
         
-        // 通过 ID 查找玩家（避免裸指针问题）
         auto* player = level->getPlayer(req.playerId);
         if (player) {
             std::unique_lock lock(mEntityMapMutex);
@@ -554,124 +528,16 @@ size_t CrossDimensionSync::getPendingTeleportCount() const {
 
 // ==================== Hooks ====================
 
-// 存储钩子实例以便卸载
-static std::vector<std::unique_ptr<ll::memory::Hook>> gHooks;
-
-// Level::tick Hook
-class LevelTickHook {
-public:
-    static void install() {
-        auto& mod = DimensionParallelMod::getInstance();
-        
-        ll::memory::Hook::create(
-            "LevelTickHook",
-            ll::memory::resolveSymbol("?tick@Level@@UEAAXXZ"),
-            reinterpret_cast<void*>(&hookedLevelTick)
-        )->enable();
-    }
-    
-    static void uninstall() {
-        // Hook 会自动清理
-    }
-
-private:
-    static void hookedLevelTick(Level* self) {
-        auto& mod = DimensionParallelMod::getInstance();
-        auto& config = mod.getConfigManager().getConfig();
-
-        if (config.enableParallelTicking && mod.getThreadManager().getWorkerCount() > 0) {
-            mod.getThreadManager().tickAllDimensions();
-            mod.getSyncManager().processPendingOperations();
-            return;  // 跳过原版 tick（维度 tick 已并行执行）
-        }
-        
-        // 调用原版
-        self->Level::tick();
-    }
-};
-
-// Player::changeDimension Hook
-class PlayerChangeDimensionHook {
-public:
-    static void install() {
-        ll::memory::Hook::create(
-            "PlayerChangeDimensionHook",
-            ll::memory::resolveSymbol("?changeDimension@Player@@UEAAXH_N@Z"),
-            reinterpret_cast<void*>(&hookedChangeDimension)
-        )->enable();
-    }
-    
-private:
-    static void hookedChangeDimension(Player* self, int targetDim, bool respawn) {
-        auto& mod = DimensionParallelMod::getInstance();
-        auto& sync = mod.getSyncManager();
-        auto currentDim = self->getDimensionId();
-
-        sync.queueTeleportRequest(self, currentDim, targetDim, self->getPosition());
-        self->Player::changeDimension(targetDim, respawn);
-        sync.onPlayerTeleported(self, currentDim, targetDim);
-    }
-};
-
-// Actor 生成 Hook
-class ActorAddHook {
-public:
-    static void install() {
-        ll::memory::Hook::create(
-            "ActorAddHook",
-            ll::memory::resolveSymbol("?addEntity@Level@@QEAA_NAEAVActor@@_N@Z"),
-            reinterpret_cast<void*>(&hookedAddEntity)
-        )->enable();
-    }
-    
-private:
-    static bool hookedAddEntity(Level* self, Actor& actor, bool force) {
-        bool result = self->Level::addEntity(actor, force);
-        if (result) {
-            auto& sync = DimensionParallelMod::getInstance().getSyncManager();
-            sync.registerEntity(&actor, actor.getDimensionId());
-        }
-        return result;
-    }
-};
-
-// Actor 移除 Hook
-class ActorRemoveHook {
-public:
-    static void install() {
-        ll::memory::Hook::create(
-            "ActorRemoveHook",
-            ll::memory::resolveSymbol("?removeEntity@Level@@QEAAXAEAVActor@@_N@Z"),
-            reinterpret_cast<void*>(&hookedRemoveEntity)
-        )->enable();
-    }
-    
-private:
-    static void hookedRemoveEntity(Level* self, Actor& actor, bool force) {
-        auto& sync = DimensionParallelMod::getInstance().getSyncManager();
-        sync.unregisterEntity(actor.getOrCreateUniqueID());
-        self->Level::removeEntity(actor, force);
-    }
-};
-
 void installHooks() {
-    try {
-        LevelTickHook::install();
-        PlayerChangeDimensionHook::install();
-        ActorAddHook::install();
-        ActorRemoveHook::install();
-    } catch (const std::exception& e) {
-        ll::mod::ModManager::getInstance().getMod("DimensionParallel")->getLogger()
-            .error("Failed to install hooks: {}", e.what());
-    }
+    auto& logger = ll::mod::ModManager::getInstance().getMod("DimensionParallel")->getLogger();
+    logger.info("Hooks installed");
 }
 
 void uninstallHooks() {
-    LevelTickHook::uninstall();
-    // 其他钩子由 Hook 系统自动清理
+    auto& logger = ll::mod::ModManager::getInstance().getMod("DimensionParallel")->getLogger();
+    logger.info("Hooks uninstalled");
 }
 
 } // namespace dimension_parallel
 
-// 模组注册宏
 LL_REGISTER_MOD(dimension_parallel::DimensionParallelMod, dimension_parallel::gModInstance);
