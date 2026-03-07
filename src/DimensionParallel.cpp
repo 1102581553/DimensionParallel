@@ -11,6 +11,7 @@
 #include <mc/world/actor/player/Player.h>
 #include <mc/world/actor/Actor.h>
 #include <mc/legacy/ActorUniqueID.h>
+#include <mc/world/phys/Vec3.h>
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <filesystem>
@@ -523,7 +524,6 @@ size_t CrossDimensionSync::getPendingTeleportCount() const {
 
 // ==================== Hooks ====================
 
-// Level::tick Hook - 拦截主 tick 并并行化维度 tick
 LL_AUTO_TYPE_INSTANCE_HOOK(
     LevelTickHook,
     ll::memory::HookPriority::Normal,
@@ -535,16 +535,14 @@ LL_AUTO_TYPE_INSTANCE_HOOK(
     auto& config = mod.getConfigManager().getConfig();
 
     if (config.enableParallelTicking && mod.getThreadManager().getWorkerCount() > 0) {
-        // 并行执行所有维度 tick
         mod.getThreadManager().tickAllDimensions();
         mod.getSyncManager().processPendingOperations();
-        return;  // 跳过原版维度 tick
+        return;
     }
     
-    origin();  // 调用原版
+    origin();
 }
 
-// Dimension::tick Hook - 防止重复 tick
 LL_AUTO_TYPE_INSTANCE_HOOK(
     DimensionTickHook,
     ll::memory::HookPriority::High,
@@ -555,7 +553,6 @@ LL_AUTO_TYPE_INSTANCE_HOOK(
     auto& mod = DimensionParallelMod::getInstance();
     auto& config = mod.getConfigManager().getConfig();
     
-    // 如果启用了并行 tick 且该维度已注册，则跳过（由线程管理器调度）
     if (config.enableParallelTicking && mod.getThreadManager().isDimensionRegistered(this->getDimensionId())) {
         return;
     }
@@ -563,7 +560,6 @@ LL_AUTO_TYPE_INSTANCE_HOOK(
     origin();
 }
 
-// Player::changeDimension Hook - 同步玩家维度切换
 LL_AUTO_TYPE_INSTANCE_HOOK(
     PlayerChangeDimensionHook,
     ll::memory::HookPriority::Normal,
@@ -582,7 +578,6 @@ LL_AUTO_TYPE_INSTANCE_HOOK(
     sync.onPlayerTeleported(this, currentDim, targetDim);
 }
 
-// Level::addEntity Hook - 注册新实体
 LL_AUTO_TYPE_INSTANCE_HOOK(
     LevelAddEntityHook,
     ll::memory::HookPriority::Normal,
@@ -600,7 +595,6 @@ LL_AUTO_TYPE_INSTANCE_HOOK(
     return result;
 }
 
-// Level::removeEntity Hook - 注销移除的实体
 LL_AUTO_TYPE_INSTANCE_HOOK(
     LevelRemoveEntityHook,
     ll::memory::HookPriority::Normal,
