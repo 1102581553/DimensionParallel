@@ -12,13 +12,12 @@
 #include <unordered_map>
 #include <queue>
 #include <string>
-#include <mc/world/actor/ActorUniqueID.h>
+#include <mc/legacy/ActorUniqueID.h>
 #include <mc/world/level/dimension/Dimension.h>
 #include <mc/world/actor/player/Player.h>
 #include <mc/math/Vec3.h>
 #include <gsl/gsl>
 
-// concurrentqueue 从 xmake 包自动获取
 #include <moodycamel/concurrentqueue.h>
 
 namespace dimension_parallel {
@@ -51,6 +50,9 @@ private:
     std::unique_ptr<CrossDimensionSync> mSyncManager;
     std::unique_ptr<ConfigManager> mConfigManager;
     std::atomic<bool> mEnabled{false};
+    
+    ll::event::ListenerId mServerStartedListener;
+    ll::event::ListenerId mServerStoppingListener;
 };
 
 // ==================== 配置管理器 ====================
@@ -63,10 +65,10 @@ public:
 
     struct ModConfig {
         bool enableParallelTicking = true;
-        int globalThreadCount = 0;          // 0 = auto
+        int globalThreadCount = 0;
         int tickTimeoutMs = 100;
         bool enablePerformanceMonitoring = true;
-        int logLevel = 2;                   // 0=Trace,1=Debug,2=Info,3=Warn,4=Error
+        int logLevel = 2;
         bool logTickTimes = true;
     };
 
@@ -82,9 +84,9 @@ private:
 // ==================== 维度统计 ====================
 struct DimensionStats {
     std::atomic<uint64_t> totalTicks{0};
-    std::atomic<uint64_t> totalTickTime{0};  // microseconds
+    std::atomic<uint64_t> totalTickTime{0};
     std::atomic<uint64_t> maxTickTime{0};
-    std::atomic<uint64_t> slowTickCount{0};  // ticks exceeding threshold
+    std::atomic<uint64_t> slowTickCount{0};
 
     void recordTick(uint64_t microseconds, uint64_t threshold = 50000);
     double getAverageTickTime() const;
@@ -176,13 +178,7 @@ public:
 private:
     CrossDimensionSync() = default;
 
-    struct EntityDimInfo {
-        ActorUniqueID id;
-        int dimension;
-        std::chrono::steady_clock::time_point lastUpdate;
-    };
-
-    std::unordered_map<ActorUniqueID, int, ActorUniqueID::Hash> mEntityDimensionMap;
+    std::unordered_map<ActorUniqueID, int> mEntityDimensionMap;
     mutable std::shared_mutex mEntityMapMutex;
 
     struct TeleportRequest {
