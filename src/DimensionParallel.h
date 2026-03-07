@@ -15,6 +15,7 @@
 #include <mc/legacy/ActorUniqueID.h>
 #include <mc/world/level/dimension/Dimension.h>
 #include <mc/world/actor/player/Player.h>
+#include <mc/world/actor/Actor.h>
 #include <mc/math/Vec3.h>
 #include <gsl/gsl>
 
@@ -22,13 +23,11 @@
 
 namespace dimension_parallel {
 
-// ==================== 前向声明 ====================
 class DimensionWorker;
 class DimensionThreadManager;
 class CrossDimensionSync;
 class ConfigManager;
 
-// ==================== 主模组类 ====================
 class DimensionParallelMod : public ll::mod::NativeMod {
 public:
     explicit DimensionParallelMod(ll::mod::Manifest const& manifest);
@@ -51,15 +50,13 @@ private:
     std::unique_ptr<ConfigManager> mConfigManager;
     std::atomic<bool> mEnabled{false};
     
-    ll::event::ListenerId mServerStartedListener;
-    ll::event::ListenerId mServerStoppingListener;
+    ll::event::ListenerId mServerStartedListener{};
+    ll::event::ListenerId mServerStoppingListener{};
 };
 
-// ==================== 配置管理器 ====================
 class ConfigManager {
 public:
     static ConfigManager& getInstance();
-
     bool loadConfig();
     bool saveConfig();
 
@@ -81,7 +78,6 @@ private:
     std::string mConfigPath = "plugins/DimensionParallel/config.json";
 };
 
-// ==================== 维度统计 ====================
 struct DimensionStats {
     std::atomic<uint64_t> totalTicks{0};
     std::atomic<uint64_t> totalTickTime{0};
@@ -95,7 +91,6 @@ struct DimensionStats {
     void reset();
 };
 
-// ==================== 维度工作线程 ====================
 class DimensionWorker {
 public:
     explicit DimensionWorker(int id);
@@ -132,7 +127,6 @@ private:
     DimensionStats mStats;
 };
 
-// ==================== 维度线程管理器 ====================
 class DimensionThreadManager {
 public:
     static DimensionThreadManager& getInstance();
@@ -159,18 +153,17 @@ private:
     std::atomic<bool> mInitialized{false};
 };
 
-// ==================== 跨维度同步 ====================
 class CrossDimensionSync {
 public:
     static CrossDimensionSync& getInstance();
 
-    void registerEntity(class Actor* entity, int dim);
-    void unregisterEntity(class ActorUniqueID id);
-    int getEntityDimension(class ActorUniqueID id) const;
+    void registerEntity(Actor* entity, int dim);
+    void unregisterEntity(ActorUniqueID id);
+    int getEntityDimension(ActorUniqueID id) const;
 
-    void queueTeleportRequest(class Player* player, int from, int to, class Vec3 const& targetPos);
+    void queueTeleportRequest(Player* player, int from, int to, Vec3 const& targetPos);
     void processPendingTeleports();
-    void onPlayerTeleported(class Player* player, int from, int to);
+    void onPlayerTeleported(Player* player, int from, int to);
 
     void processPendingOperations();
     size_t getPendingTeleportCount() const;
@@ -196,7 +189,6 @@ private:
     static constexpr size_t MAX_PENDING_TELEPORTS = 1000;
 };
 
-// ==================== 钩子安装 ====================
 void installHooks();
 void uninstallHooks();
 
