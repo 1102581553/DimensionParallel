@@ -11,7 +11,7 @@
 #include <unordered_map>
 #include <queue>
 #include <string>
-#include <mc/world/actor/ActorUniqueID.h>
+#include <mc/legacy/ActorUniqueID.h>
 #include <mc/world/level/dimension/Dimension.h>
 #include <mc/world/actor/player/Player.h>
 
