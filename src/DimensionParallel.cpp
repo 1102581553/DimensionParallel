@@ -4,8 +4,8 @@
 #include <ll/api/event/server/ServerStartedEvent.h>
 #include <ll/api/event/server/ServerStoppingEvent.h>
 #include <ll/api/memory/Hook.h>
-#include <ll/api/service/Bedrock.h>      // 新增，用于 ll::service::getLevel()
-#include <ll/api/mod/RegisterHelper.h>   // 新增，用于 LL_REGISTER_MOD
+#include <ll/api/service/Bedrock.h>      // 包含 ll::service::getLevel()
+#include <ll/api/mod/RegisterHelper.h>   // 包含 LL_REGISTER_MOD
 #include <mc/world/level/Level.h>
 #include <mc/world/level/dimension/Dimension.h>
 #include <mc/world/actor/player/Player.h>
@@ -393,8 +393,8 @@ bool DimensionThreadManager::tickAllDimensionsWithTimeout(std::chrono::milliseco
         std::shared_lock lock(mWorkersMutex);
         for (auto& [id, worker] : mWorkers) {
             worker->submitTask([id]() {
-                // 修正：使用 ll::service::getLevel()
-                auto* level = ll::service::getLevel();
+                // 修正：使用 auto level，因为返回的是 optional_ref<Level>
+                auto level = ll::service::getLevel();
                 if (!level) return;
                 auto* dim = level->getDimension(id);
                 if (!dim) return;
@@ -487,8 +487,8 @@ void CrossDimensionSync::processPendingTeleports() {
         std::swap(localQueue, mTeleportQueue);
     }
 
-    // 修正：使用 ll::service::getLevel()
-    auto* level = ll::service::getLevel();
+    // 修正：使用 auto level，返回 optional_ref<Level>
+    auto level = ll::service::getLevel();
     if (!level) return;
 
     while (!localQueue.empty()) {
