@@ -520,12 +520,13 @@ size_t CrossDimensionSync::getPendingTeleportCount() const {
 }
 
 // ==================== Hooks ====================
+// 关键：使用 $ 前缀的 thunk 函数，参考 MobAIOptimizer 插件
 
 LL_AUTO_TYPE_INSTANCE_HOOK(
     LevelTickHook,
     ll::memory::HookPriority::Normal,
     Level,
-    &Level::tick,
+    &Level::$tick,
     void
 ) {
     auto& mod = DimensionParallelMod::getInstance();
@@ -544,7 +545,7 @@ LL_AUTO_TYPE_INSTANCE_HOOK(
     DimensionTickHook,
     ll::memory::HookPriority::High,
     Dimension,
-    &Dimension::tick,
+    &Dimension::$tick,
     void
 ) {
     auto& mod = DimensionParallelMod::getInstance();
@@ -555,55 +556,6 @@ LL_AUTO_TYPE_INSTANCE_HOOK(
     }
     
     origin();
-}
-
-LL_AUTO_TYPE_INSTANCE_HOOK(
-    PlayerChangeDimensionHook,
-    ll::memory::HookPriority::Normal,
-    Player,
-    &Player::changeDimension,
-    void,
-    int targetDim,
-    bool respawn
-) {
-    auto& mod = DimensionParallelMod::getInstance();
-    auto& sync = mod.getSyncManager();
-    auto currentDim = this->getDimensionId();
-
-    sync.queueTeleportRequest(this, currentDim, targetDim, this->getPosition());
-    origin(targetDim, respawn);
-    sync.onPlayerTeleported(this, currentDim, targetDim);
-}
-
-LL_AUTO_TYPE_INSTANCE_HOOK(
-    LevelAddEntityHook,
-    ll::memory::HookPriority::Normal,
-    Level,
-    &Level::addEntity,
-    bool,
-    Actor& actor,
-    bool force
-) {
-    bool result = origin(actor, force);
-    if (result) {
-        auto& sync = DimensionParallelMod::getInstance().getSyncManager();
-        sync.registerEntity(&actor, actor.getDimensionId());
-    }
-    return result;
-}
-
-LL_AUTO_TYPE_INSTANCE_HOOK(
-    LevelRemoveEntityHook,
-    ll::memory::HookPriority::Normal,
-    Level,
-    &Level::removeEntity,
-    void,
-    Actor& actor,
-    bool force
-) {
-    auto& sync = DimensionParallelMod::getInstance().getSyncManager();
-    sync.unregisterEntity(actor.getOrCreateUniqueID());
-    origin(actor, force);
 }
 
 void installHooks() {
