@@ -26,9 +26,7 @@ namespace dimension_parallel {
 // ==================== DimensionParallelMod ====================
 
 DimensionParallelMod::DimensionParallelMod()
-    : mSelf(*ll::mod::NativeMod::current()) {
-    // 不再需要全局变量 gModInstance
-}
+    : mSelf(*ll::mod::NativeMod::current()) {}
 
 DimensionParallelMod& DimensionParallelMod::getInstance() {
     static DimensionParallelMod instance;
@@ -396,7 +394,8 @@ bool DimensionThreadManager::tickAllDimensionsWithTimeout(std::chrono::milliseco
                 // 修正：使用 auto level，因为返回的是 optional_ref<Level>
                 auto level = ll::service::getLevel();
                 if (!level) return;
-                auto* dim = level->getDimension(id);
+                // 修正：level->getDimension 返回 WeakRef<Dimension>，不能赋给 auto*，改为 auto
+                auto dim = level->getDimension(id);
                 if (!dim) return;
                 dim->tick();
             });
