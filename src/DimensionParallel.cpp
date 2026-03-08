@@ -133,6 +133,7 @@ bool ConfigManager::loadConfig() {
         mConfig.enablePerformanceMonitoring = json.value("enablePerformanceMonitoring", mConfig.enablePerformanceMonitoring);
         mConfig.logLevel = json.value("logLevel", mConfig.logLevel);
         mConfig.logTickTimes = json.value("logTickTimes", mConfig.logTickTimes);
+        mConfig.debug = json.value("debug", mConfig.debug);
 
         DimensionParallelMod::getInstance().getLogger().info("Config loaded successfully");
         return true;
@@ -150,6 +151,7 @@ bool ConfigManager::saveConfig() {
     json["enablePerformanceMonitoring"] = mConfig.enablePerformanceMonitoring;
     json["logLevel"] = mConfig.logLevel;
     json["logTickTimes"] = mConfig.logTickTimes;
+    json["debug"] = mConfig.debug;
 
     try {
         std::filesystem::create_directories(std::filesystem::path(mConfigPath).parent_path());
@@ -244,7 +246,11 @@ bool DimensionWorker::waitForTickCompletion(std::chrono::milliseconds timeout) {
 
 void DimensionWorker::workerThread() {
     auto& logger = DimensionParallelMod::getInstance().getLogger();
-    logger.debug("DimensionWorker {} started", mId);
+    auto& config = ConfigManager::getInstance().getConfig();
+
+    if (config.debug) {
+        logger.info("DimensionWorker {} started", mId);
+    }
 
     while (mRunning.load(std::memory_order_acquire)) {
         processTasks();
@@ -257,8 +263,10 @@ void DimensionWorker::workerThread() {
     }
 
     processTasks();
-    
-    logger.debug("DimensionWorker {} stopped", mId);
+
+    if (config.debug) {
+        logger.info("DimensionWorker {} stopped", mId);
+    }
 }
 
 void DimensionWorker::processTasks() {
@@ -357,7 +365,10 @@ void DimensionThreadManager::registerDimension(int id) {
     mWorkers[id] = std::move(worker);
 
     auto& logger = DimensionParallelMod::getInstance().getLogger();
-    logger.debug("Registered dimension {}", id);
+    auto& config = ConfigManager::getInstance().getConfig();
+    if (config.debug) {
+        logger.info("Registered dimension {}", id);
+    }
 }
 
 void DimensionThreadManager::unregisterDimension(int id) {
@@ -385,19 +396,19 @@ bool DimensionThreadManager::tickAllDimensionsWithTimeout(std::chrono::milliseco
     }
 
     auto& logger = DimensionParallelMod::getInstance().getLogger();
+    auto& config = ConfigManager::getInstance().getConfig();
     auto startTime = std::chrono::high_resolution_clock::now();
 
     {
         std::shared_lock lock(mWorkersMutex);
         for (auto& [id, worker] : mWorkers) {
             worker->submitTask([id]() {
-                // 修正：使用 auto level，因为返回的是 optional_ref<Level>
                 auto level = ll::service::getLevel();
                 if (!level) return;
-                // 修正：level->getDimension 返回 WeakRef<Dimension>，不能赋给 auto*，改为 auto
-                auto dim = level->getDimension(id);
-                if (!dim) return;
-                dim->tick();
+                // 获取 WeakRef<Dimension>，通过 .ptr 成员访问原始指针
+                auto dimRef = level->getDimension(id);
+                if (!dimRef.ptr) return;      // 检查指针有效性
+                dimRef.ptr->tick();            // 调用 tick()
             });
         }
     }
@@ -416,8 +427,8 @@ bool DimensionThreadManager::tickAllDimensionsWithTimeout(std::chrono::milliseco
     auto endTime = std::chrono::high_resolution_clock::now();
     auto totalDuration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
     
-    if (totalDuration > 50) {
-        logger.debug("All dimensions ticked in {}ms", totalDuration);
+    if (config.debug && totalDuration > 50) {
+        logger.info("All dimensions ticked in {}ms", totalDuration);
     }
 
     return allCompleted;
@@ -486,7 +497,6 @@ void CrossDimensionSync::processPendingTeleports() {
         std::swap(localQueue, mTeleportQueue);
     }
 
-    // 修正：使用 auto level，返回 optional_ref<Level>
     auto level = ll::service::getLevel();
     if (!level) return;
 
@@ -520,7 +530,6 @@ size_t CrossDimensionSync::getPendingTeleportCount() const {
 }
 
 // ==================== Hooks ====================
-// 关键：使用 $ 前缀的 thunk 函数，参考 MobAIOptimizer 插件
 
 LL_AUTO_TYPE_INSTANCE_HOOK(
     LevelTickHook,
@@ -568,5 +577,4 @@ void uninstallHooks() {
 
 } // namespace dimension_parallel
 
-// 注册宏：传入单例的 getInstance 方法
 LL_REGISTER_MOD(dimension_parallel::DimensionParallelMod, dimension_parallel::DimensionParallelMod::getInstance());
