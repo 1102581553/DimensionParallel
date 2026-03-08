@@ -1,5 +1,6 @@
 #pragma once
 #include <ll/api/mod/NativeMod.h>
+#include <ll/api/io/Logger.h>
 #include <ll/api/mod/Manifest.h>
 #include <atomic>
 #include <chrono>
@@ -28,23 +29,26 @@ class DimensionThreadManager;
 class CrossDimensionSync;
 class ConfigManager;
 
-class DimensionParallelMod : public ll::mod::NativeMod {
+// 不再继承 NativeMod，改用组合模式
+class DimensionParallelMod {
 public:
-    explicit DimensionParallelMod(ll::mod::Manifest const& manifest);
-
     static DimensionParallelMod& getInstance();
 
-    bool load() override;
-    bool enable() override;
-    void disable() override;
+    bool load();
+    bool enable();
+    void disable();
 
     DimensionThreadManager& getThreadManager() { return *mThreadManager; }
     CrossDimensionSync& getSyncManager() { return *mSyncManager; }
     ConfigManager& getConfigManager() { return *mConfigManager; }
 
-    ~DimensionParallelMod() override = default;
+    // 获取日志器
+    ll::io::Logger& getLogger() const { return mSelf.getLogger(); }
 
 private:
+    DimensionParallelMod();  // 私有构造
+    ll::mod::NativeMod& mSelf;
+
     std::unique_ptr<DimensionThreadManager> mThreadManager;
     std::unique_ptr<CrossDimensionSync> mSyncManager;
     std::unique_ptr<ConfigManager> mConfigManager;
