@@ -4,7 +4,8 @@
 #include <ll/api/event/server/ServerStartedEvent.h>
 #include <ll/api/event/server/ServerStoppingEvent.h>
 #include <ll/api/memory/Hook.h>
-#include <ll/api/service/ServerInfo.h>
+#include <ll/api/service/Bedrock.h>      // 新增，用于 ll::service::getLevel()
+#include <ll/api/mod/RegisterHelper.h>   // 新增，用于 LL_REGISTER_MOD
 #include <mc/world/level/Level.h>
 #include <mc/world/level/dimension/Dimension.h>
 #include <mc/world/actor/player/Player.h>
@@ -22,18 +23,16 @@
 
 namespace dimension_parallel {
 
-static DimensionParallelMod* gModInstance = nullptr;
+// ==================== DimensionParallelMod ====================
 
-DimensionParallelMod& DimensionParallelMod::getInstance() {
-    if (!gModInstance) {
-        throw std::runtime_error("DimensionParallelMod not initialized");
-    }
-    return *gModInstance;
+DimensionParallelMod::DimensionParallelMod()
+    : mSelf(*ll::mod::NativeMod::current()) {
+    // 不再需要全局变量 gModInstance
 }
 
-DimensionParallelMod::DimensionParallelMod(ll::mod::Manifest const& manifest) 
-    : ll::mod::NativeMod(manifest) {
-    gModInstance = this;
+DimensionParallelMod& DimensionParallelMod::getInstance() {
+    static DimensionParallelMod instance;
+    return instance;
 }
 
 bool DimensionParallelMod::load() {
@@ -394,7 +393,8 @@ bool DimensionThreadManager::tickAllDimensionsWithTimeout(std::chrono::milliseco
         std::shared_lock lock(mWorkersMutex);
         for (auto& [id, worker] : mWorkers) {
             worker->submitTask([id]() {
-                auto* level = ll::service::ServerInfo::getInstance().getLevel();
+                // 修正：使用 ll::service::getLevel()
+                auto* level = ll::service::getLevel();
                 if (!level) return;
                 auto* dim = level->getDimension(id);
                 if (!dim) return;
@@ -487,7 +487,8 @@ void CrossDimensionSync::processPendingTeleports() {
         std::swap(localQueue, mTeleportQueue);
     }
 
-    auto* level = ll::service::ServerInfo::getInstance().getLevel();
+    // 修正：使用 ll::service::getLevel()
+    auto* level = ll::service::getLevel();
     if (!level) return;
 
     while (!localQueue.empty()) {
@@ -568,4 +569,5 @@ void uninstallHooks() {
 
 } // namespace dimension_parallel
 
-LL_REGISTER_MOD(dimension_parallel::DimensionParallelMod, dimension_parallel::gModInstance);
+// 注册宏：传入单例的 getInstance 方法
+LL_REGISTER_MOD(dimension_parallel::DimensionParallelMod, dimension_parallel::DimensionParallelMod::getInstance());
